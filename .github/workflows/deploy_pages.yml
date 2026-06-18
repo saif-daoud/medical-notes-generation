@@ -34,6 +34,7 @@ jobs:
       - name: Build
         env:
           VITE_BASE_PATH: /medical-notes-generation/
+          VITE_ACCESS_CODE_HASH: ${{ secrets.ACCESS_CODE_HASH }}
         run: npm run build
 
       - name: Upload artifact

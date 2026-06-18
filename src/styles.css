@@ -106,6 +106,19 @@ button {
   margin-top: 24px;
 }
 
+.accessFormGate {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .field {
   display: grid;
   gap: 7px;

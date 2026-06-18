@@ -1,5 +1,6 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const DEFAULT_ACCESS_CODE_HASH = "a7f5fbabd1624ba763ed037a9b3ed7289cda4e739b06be222f6d3589cdba8a87";
 
 function allowedOrigins(env) {
   return String(env.ALLOWED_ORIGINS || "")
@@ -78,6 +79,21 @@ async function makeParticipantUid(email) {
   return `P-${(await sha256Hex(String(email || "").trim().toLowerCase())).slice(0, 12)}`;
 }
 
+function accessCodeHashes(env) {
+  const configured = String(env.ACCESS_CODE_HASHES || env.ACCESS_CODE_HASH || DEFAULT_ACCESS_CODE_HASH)
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return configured.length ? configured : [DEFAULT_ACCESS_CODE_HASH];
+}
+
+async function requireAccessCode(env, accessCode) {
+  const code = String(accessCode || "").trim();
+  if (!code) throw new Error("Missing access code");
+  const hash = await sha256Hex(code);
+  if (!accessCodeHashes(env).includes(hash)) throw new Error("Invalid access code");
+}
+
 function requireProfile(profile) {
   const years = Number(profile?.years_experience);
   const cleaned = {
@@ -117,6 +133,32 @@ async function upsertParticipant(env, profile) {
     .run();
 
   return participantUid;
+}
+
+async function findParticipantByEmail(env, email) {
+  const row = await env.DB
+    .prepare(
+      `SELECT participant_uid, email, name, role, institution, latest_degree, years_experience
+       FROM participants
+       WHERE lower(email) = lower(?)
+       LIMIT 1`,
+    )
+    .bind(cleanText(email, 320).toLowerCase())
+    .first();
+
+  if (!row?.participant_uid) return null;
+  return {
+    participant_id: row.participant_uid,
+    profile: {
+      participant_id: row.participant_uid,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+      institution: row.institution,
+      latest_degree: row.latest_degree,
+      years_experience: row.years_experience,
+    },
+  };
 }
 
 async function listHistory(env, participantUid) {
@@ -220,7 +262,30 @@ export default {
     const body = await request.json().catch(() => ({}));
 
     try {
+      if (path.endsWith("/api/access")) {
+        const email = cleanText(body.email, 320).toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Invalid email");
+        await requireAccessCode(env, body.access_code);
+
+        const participant = await findParticipantByEmail(env, email);
+        if (!participant) return json({ ok: true, profile_complete: false, email }, 200, headers);
+
+        const token = await makeToken(env, { participant_uid: participant.participant_id, email, exp: Date.now() + TOKEN_TTL_MS });
+        return json(
+          {
+            ok: true,
+            profile_complete: true,
+            participant_id: participant.participant_id,
+            profile: participant.profile,
+            token,
+          },
+          200,
+          headers,
+        );
+      }
+
       if (path.endsWith("/api/session")) {
+        await requireAccessCode(env, body.access_code || body.profile?.access_code);
         const profile = requireProfile(body.profile);
         const participantUid = await upsertParticipant(env, profile);
         const token = await makeToken(env, { participant_uid: participantUid, email: profile.email, exp: Date.now() + TOKEN_TTL_MS });

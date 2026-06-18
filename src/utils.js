@@ -25,6 +25,12 @@ export function makeParticipantId(email) {
   return `P-${stableHash(String(email || "").trim().toLowerCase()).toString(16).padStart(8, "0")}`;
 }
 
+export async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value || ""));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function seededRandom(seed) {
   let state = seed >>> 0;
   return () => {

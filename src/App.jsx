@@ -10,6 +10,7 @@ import {
   Download,
   FileText,
   GraduationCap,
+  KeyRound,
   Languages,
   LockKeyhole,
   LogOut,
@@ -23,7 +24,10 @@ import { useEffect, useMemo, useState } from "react";
 import { apiEnabled, postJSON } from "./api.js";
 import { OutputViewer, TextModal } from "./renderers.jsx";
 import { STORAGE_KEYS, clearStudyStorage, loadJson, saveJson } from "./storage.js";
-import { downloadJson, makeParticipantId, makeSequence, nowUtc } from "./utils.js";
+import { downloadJson, makeParticipantId, makeSequence, nowUtc, sha256Hex } from "./utils.js";
+
+const DEFAULT_ACCESS_CODE_HASH = "a7f5fbabd1624ba763ed037a9b3ed7289cda4e739b06be222f6d3589cdba8a87";
+const ACCESS_CODE_HASH = String(import.meta.env.VITE_ACCESS_CODE_HASH || DEFAULT_ACCESS_CODE_HASH).trim().toLowerCase();
 
 const ROUTES = {
   access: "access",
@@ -61,13 +65,24 @@ function byId(items) {
   return new Map((items || []).map((item) => [item.id, item]));
 }
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+async function verifyLocalAccessCode(accessCode) {
+  if (!String(accessCode || "").trim()) throw new Error("Please enter the access code.");
+  const hash = await sha256Hex(String(accessCode || "").trim());
+  if (hash !== ACCESS_CODE_HASH) throw new Error("Invalid access code.");
+}
+
 function App() {
   const [route, setRoute] = useState(routeFromHash);
   const [study, setStudy] = useState(null);
   const [loadError, setLoadError] = useState("");
-  const [profile, setProfile] = useState(() => loadJson(STORAGE_KEYS.profile, null));
-  const [responses, setResponses] = useState(() => loadJson(STORAGE_KEYS.responses, []));
-  const [sequence, setSequence] = useState(() => loadJson(STORAGE_KEYS.sequence, []));
+  const [accounts, setAccounts] = useState(() => loadJson(STORAGE_KEYS.accounts, {}));
+  const [profile, setProfile] = useState(null);
+  const [responses, setResponses] = useState([]);
+  const [sequence, setSequence] = useState([]);
   const [activeComparisonId, setActiveComparisonId] = useState("");
   const [remoteStats, setRemoteStats] = useState(null);
   const [remoteStatus, setRemoteStatus] = useState(apiEnabled() ? "Cloudflare sync configured" : "Local prototype");
@@ -98,6 +113,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    saveJson(STORAGE_KEYS.accounts, accounts);
+  }, [accounts]);
+
+  useEffect(() => {
     if (profile) saveJson(STORAGE_KEYS.profile, profile);
   }, [profile]);
 
@@ -115,6 +134,21 @@ function App() {
       setSequence(makeSequence(study.comparisons, profile.email || profile.participant_id));
     }
   }, [profile, sequence, study]);
+
+  useEffect(() => {
+    if (!profile || apiEnabled()) return;
+    const email = normalizeEmail(profile.email);
+    if (!email) return;
+    setAccounts((current) => ({
+      ...current,
+      [email]: {
+        profile,
+        responses,
+        sequence,
+        updated_at_utc: nowUtc(),
+      },
+    }));
+  }, [profile, responses, sequence]);
 
   useEffect(() => {
     if (!profile && route !== ROUTES.access) go(ROUTES.access);
@@ -149,10 +183,66 @@ function App() {
     }
   }
 
+  async function handleAccessSubmit({ email, accessCode }) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error("Please enter a valid email address.");
+
+    if (apiEnabled()) {
+      const result = await postJSON("/api/access", { email: normalizedEmail, access_code: accessCode });
+      if (result?.token) localStorage.setItem(STORAGE_KEYS.token, String(result.token || ""));
+
+      if (result?.profile_complete && result?.profile) {
+        const nextProfile = {
+          ...result.profile,
+          email: normalizedEmail,
+          participant_id: String(result.participant_id || result.profile.participant_id || makeParticipantId(normalizedEmail)),
+        };
+        setProfile(nextProfile);
+        setRemoteStatus("Cloudflare session ready");
+
+        try {
+          const history = await postJSON("/api/history", { token: result.token });
+          setResponses(Array.isArray(history?.responses) ? history.responses : []);
+        } catch {
+          setResponses([]);
+          setRemoteStatus("Cloudflare session ready; history will retry after the first save");
+        }
+
+        setSequence(study ? makeSequence(study.comparisons, normalizedEmail) : []);
+        go(ROUTES.welcome);
+        return { existing: true };
+      }
+
+      return { existing: false, email: normalizedEmail };
+    }
+
+    await verifyLocalAccessCode(accessCode);
+    const account = accounts[normalizedEmail];
+    if (account?.profile) {
+      const nextProfile = {
+        ...account.profile,
+        email: normalizedEmail,
+        participant_id: account.profile.participant_id || makeParticipantId(normalizedEmail),
+      };
+      setProfile(nextProfile);
+      setResponses(Array.isArray(account.responses) ? account.responses : []);
+      setSequence(
+        Array.isArray(account.sequence) && account.sequence.length === study.comparisonCount
+          ? account.sequence
+          : makeSequence(study.comparisons, normalizedEmail),
+      );
+      go(ROUTES.welcome);
+      return { existing: true };
+    }
+
+    return { existing: false, email: normalizedEmail };
+  }
+
   async function handleProfileSubmit(nextProfile) {
+    const accessCode = String(nextProfile.access_code || "").trim();
     const normalized = {
       ...nextProfile,
-      email: nextProfile.email.trim().toLowerCase(),
+      email: normalizeEmail(nextProfile.email),
       name: nextProfile.name.trim(),
       role: nextProfile.role.trim(),
       institution: nextProfile.institution.trim(),
@@ -161,9 +251,10 @@ function App() {
       participant_id: makeParticipantId(nextProfile.email),
       started_at_utc: nowUtc(),
     };
+    delete normalized.access_code;
 
     if (apiEnabled()) {
-      const result = await postJSON("/api/session", { profile: normalized });
+      const result = await postJSON("/api/session", { profile: normalized, access_code: accessCode });
       localStorage.setItem(STORAGE_KEYS.token, String(result.token || ""));
       normalized.participant_id = String(result.participant_id || normalized.participant_id);
       setRemoteStatus("Cloudflare session ready");
@@ -174,6 +265,8 @@ function App() {
       } catch {
         setRemoteStatus("Cloudflare session ready; history will retry after the first save");
       }
+    } else {
+      await verifyLocalAccessCode(accessCode);
     }
 
     setProfile(normalized);
@@ -236,7 +329,7 @@ function App() {
   }
 
   if (!profile || route === ROUTES.access) {
-    return <AccessPage cloudMode={apiEnabled()} onSubmit={handleProfileSubmit} />;
+    return <AccessPage cloudMode={apiEnabled()} onAccess={handleAccessSubmit} onSubmit={handleProfileSubmit} />;
   }
 
   return (
@@ -334,10 +427,16 @@ function AppShell({ profile, route, answeredCount, totalCount, remoteStatus, onL
   );
 }
 
-function AccessPage({ cloudMode, onSubmit }) {
+function AccessPage({ cloudMode, onAccess, onSubmit }) {
+  const [step, setStep] = useState("gate");
+  const [gate, setGate] = useState({
+    email: "",
+    access_code: "",
+  });
   const [profile, setProfile] = useState({
     name: "",
     email: "",
+    access_code: "",
     role: "",
     institution: "",
     latest_degree: "",
@@ -350,12 +449,44 @@ function AccessPage({ cloudMode, onSubmit }) {
     setProfile((current) => ({ ...current, [field]: value }));
   }
 
-  async function submit(event) {
+  function updateGate(field, value) {
+    setGate((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submitGate(event) {
+    event.preventDefault();
+    setStatus("");
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gate.email.trim())) return setStatus("Please enter a valid email address.");
+    if (!gate.access_code.trim()) return setStatus("Please enter the access code.");
+
+    try {
+      setSubmitting(true);
+      setStatus(cloudMode ? "Checking access..." : "Checking access code...");
+      const result = await onAccess({ email: gate.email, accessCode: gate.access_code });
+      if (!result?.existing) {
+        setProfile((current) => ({
+          ...current,
+          email: result?.email || gate.email.trim().toLowerCase(),
+          access_code: gate.access_code,
+        }));
+        setStep("profile");
+        setStatus("Access code accepted. Please complete your participant details.");
+      }
+    } catch (error) {
+      setStatus(error?.message || "Could not verify access.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitProfile(event) {
     event.preventDefault();
     setStatus("");
 
     if (!profile.name.trim()) return setStatus("Please enter your name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email.trim())) return setStatus("Please enter a valid email address.");
+    if (!profile.access_code.trim()) return setStatus("Please enter the access code.");
     if (!profile.role.trim()) return setStatus("Please enter your role or clinical specialty.");
     if (!profile.institution.trim()) return setStatus("Please enter your institution.");
     if (!profile.latest_degree.trim()) return setStatus("Please enter your latest degree.");
@@ -383,22 +514,40 @@ function AccessPage({ cloudMode, onSubmit }) {
         </div>
         <h1>Sakina SOAP Review</h1>
         <p>
-          Enter your participant details to begin the blinded preference review of generated SOAP notes.
+          Enter your email and access code. Returning experts will resume immediately; new experts will complete a short profile first.
         </p>
 
-        <form className="accessForm" onSubmit={submit}>
-          <Input icon={<UserRound size={18} />} label="Full name" value={profile.name} onChange={(value) => update("name", value)} autoComplete="name" />
-          <Input icon={<Mail size={18} />} label="Email" type="email" value={profile.email} onChange={(value) => update("email", value)} autoComplete="email" />
-          <Input icon={<BriefcaseBusiness size={18} />} label="Role or specialty" value={profile.role} onChange={(value) => update("role", value)} />
-          <Input icon={<Building2 size={18} />} label="Institution" value={profile.institution} onChange={(value) => update("institution", value)} />
-          <Input icon={<GraduationCap size={18} />} label="Latest degree" value={profile.latest_degree} onChange={(value) => update("latest_degree", value)} />
-          <Input icon={<BarChart3 size={18} />} label="Years of experience" type="number" min="0" max="80" value={profile.years_experience} onChange={(value) => update("years_experience", value)} />
+        {step === "gate" ? (
+          <form className="accessForm accessFormGate" onSubmit={submitGate}>
+            <Input icon={<Mail size={18} />} label="Email" type="email" value={gate.email} onChange={(value) => updateGate("email", value)} autoComplete="email" />
+            <Input icon={<KeyRound size={18} />} label="Access code" type="password" value={gate.access_code} onChange={(value) => updateGate("access_code", value)} autoComplete="one-time-code" />
 
-          <button className="primaryAction" type="submit" disabled={submitting}>
-            {submitting ? <RefreshCw size={18} className="spin" /> : <ArrowRight size={18} />}
-            {submitting ? "Starting..." : "Continue"}
-          </button>
-        </form>
+            <button className="primaryAction" type="submit" disabled={submitting}>
+              {submitting ? <RefreshCw size={18} className="spin" /> : <ArrowRight size={18} />}
+              {submitting ? "Checking..." : "Continue"}
+            </button>
+          </form>
+        ) : (
+          <form className="accessForm" onSubmit={submitProfile}>
+            <Input icon={<Mail size={18} />} label="Email" type="email" value={profile.email} onChange={(value) => update("email", value)} autoComplete="email" />
+            <Input icon={<KeyRound size={18} />} label="Access code" type="password" value={profile.access_code} onChange={(value) => update("access_code", value)} autoComplete="one-time-code" />
+            <Input icon={<UserRound size={18} />} label="Full name" value={profile.name} onChange={(value) => update("name", value)} autoComplete="name" />
+            <Input icon={<BriefcaseBusiness size={18} />} label="Role or specialty" value={profile.role} onChange={(value) => update("role", value)} />
+            <Input icon={<Building2 size={18} />} label="Institution" value={profile.institution} onChange={(value) => update("institution", value)} />
+            <Input icon={<GraduationCap size={18} />} label="Latest degree" value={profile.latest_degree} onChange={(value) => update("latest_degree", value)} />
+            <Input icon={<BarChart3 size={18} />} label="Years of experience" type="number" min="0" max="80" value={profile.years_experience} onChange={(value) => update("years_experience", value)} />
+
+            <div className="formActions">
+              <button className="secondaryButton" type="button" disabled={submitting} onClick={() => setStep("gate")}>
+                Back
+              </button>
+              <button className="primaryAction" type="submit" disabled={submitting}>
+                {submitting ? <RefreshCw size={18} className="spin" /> : <ArrowRight size={18} />}
+                {submitting ? "Starting..." : "Create account"}
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="accessMode">
           <Cloud size={16} />

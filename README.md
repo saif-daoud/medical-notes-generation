@@ -11,6 +11,8 @@ npm run dev
 
 The app generates `public/data/study-data.json` before starting Vite when `sakinaai/out` is available. On GitHub Actions it reuses the committed anonymized `study-data.json`. Served study data removes model/provider metadata and exposes outputs only as `Output A`, `Output B`, etc.
 
+The static frontend requires an access code. By default the local prototype accepts `sakina2026`. For deployment, add a GitHub Actions secret named `ACCESS_CODE_HASH` containing the SHA-256 hash of your real access code.
+
 ## Cloudflare D1 API
 
 The frontend works without a backend by saving responses in browser storage. To sync to Cloudflare later:
@@ -21,6 +23,7 @@ The frontend works without a backend by saving responses in browser storage. To 
 
 ```bash
 npx wrangler secret put TOKEN_SECRET
+npx wrangler secret put ACCESS_CODE_HASHES
 ```
 
 4. Apply migrations and deploy:

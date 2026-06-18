@@ -1,6 +1,7 @@
 const PREFIX = "sakina_soap_review_v1";
 
 export const STORAGE_KEYS = {
+  accounts: `${PREFIX}:accounts`,
   profile: `${PREFIX}:profile`,
   responses: `${PREFIX}:responses`,
   sequence: `${PREFIX}:sequence`,
@@ -21,7 +22,8 @@ export function saveJson(key, value) {
 }
 
 export function clearStudyStorage() {
-  for (const key of Object.values(STORAGE_KEYS)) {
-    localStorage.removeItem(key);
-  }
+  localStorage.removeItem(STORAGE_KEYS.profile);
+  localStorage.removeItem(STORAGE_KEYS.responses);
+  localStorage.removeItem(STORAGE_KEYS.sequence);
+  localStorage.removeItem(STORAGE_KEYS.token);
 }
