@@ -1,0 +1,7 @@
+node_modules
+dist
+.env.local
+.wrangler
+vite-dev*.log
+worker/node_modules
+worker/.dev.vars

@@ -1,0 +1,24 @@
+{
+  "name": "sakina-expert-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-data": "node scripts/build-study-data.mjs",
+    "dev": "npm run prepare-data && vite --host 127.0.0.1",
+    "build": "npm run prepare-data && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "worker:dev": "npm --prefix worker run dev",
+    "worker:migrate:local": "npm --prefix worker run migrate:local",
+    "worker:migrate:remote": "npm --prefix worker run migrate:remote",
+    "worker:deploy": "npm --prefix worker run deploy"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vite": "^7.2.4"
+  },
+  "devDependencies": {}
+}

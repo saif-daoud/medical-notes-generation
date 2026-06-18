@@ -1,0 +1,15 @@
+{
+  "name": "sakina-expert-feedback-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "migrate:local": "wrangler d1 migrations apply sakina_expert_feedback --local",
+    "migrate:remote": "wrangler d1 migrations apply sakina_expert_feedback --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.54.0"
+  }
+}
