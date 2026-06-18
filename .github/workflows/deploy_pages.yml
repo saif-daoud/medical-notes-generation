@@ -36,45 +36,61 @@ jobs:
 
       - name: Prepare Cloudflare Worker
         id: worker
-        continue-on-error: true
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ACCESS_CODE_HASH: ${{ secrets.ACCESS_CODE_HASH }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ] || [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "Cloudflare secrets are required for aggregate all-expert stats." >&2
-            exit 1
-          fi
-
+          mkdir -p public/data
+          WORKER_NAME="sakina-expert-feedback-api"
           DB_NAME="sakina_expert_feedback"
-          DB_LIST_JSON="$(cd worker && npx wrangler d1 list --json)"
-          DB_ID="$(DB_LIST_JSON="$DB_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE'
+          HAS_ACCOUNT_ID=false
+          HAS_API_TOKEN=false
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] && HAS_ACCOUNT_ID=true
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && HAS_API_TOKEN=true
+
+          DB_LIST_EXIT=-1
+          DB_CREATE_EXIT=-1
+          MIGRATE_EXIT=-1
+          DEPLOY_EXIT=-1
+          ENABLE_SUBDOMAIN_EXIT=-1
+          SUBDOMAIN_EXIT=-1
+          DEPLOYMENTS_EXIT=-1
+          DB_ID=""
+          DB_LIST_JSON=""
+          CREATE_JSON=""
+          SUBDOMAIN_JSON=""
+          DEPLOYMENTS_JSON=""
+          DEPLOYMENT_URL=""
+          WORKERS_SUBDOMAIN=""
+          WORKER_URL=""
+
+          if [ "$HAS_ACCOUNT_ID" = true ] && [ "$HAS_API_TOKEN" = true ]; then
+            DB_LIST_JSON="$(cd worker && npx wrangler d1 list --json 2>../d1-list.err)"
+            DB_LIST_EXIT=$?
+            DB_ID="$(DB_LIST_JSON="$DB_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE' 2>/dev/null
           const payload = JSON.parse(process.env.DB_LIST_JSON || "[]");
           const rows = Array.isArray(payload) ? payload : payload.result || payload.databases || [];
           const match = rows.find((row) => row.name === process.env.DB_NAME);
           process.stdout.write(match?.uuid || match?.id || match?.database_id || "");
           NODE
-          )"
+            )"
 
-          if [ -z "$DB_ID" ]; then
-            CREATE_JSON="$(cd worker && npx wrangler d1 create "$DB_NAME" --json)"
-            DB_ID="$(CREATE_JSON="$CREATE_JSON" node - <<'NODE'
+            if [ -z "$DB_ID" ]; then
+              CREATE_JSON="$(cd worker && npx wrangler d1 create "$DB_NAME" --json 2>../d1-create.err)"
+              DB_CREATE_EXIT=$?
+              DB_ID="$(CREATE_JSON="$CREATE_JSON" node - <<'NODE' 2>/dev/null
           const payload = JSON.parse(process.env.CREATE_JSON || "{}");
           const row = Array.isArray(payload) ? payload[0] : payload.result || payload;
           process.stdout.write(row?.uuid || row?.id || row?.database_id || "");
           NODE
-            )"
-          fi
+              )"
+            fi
 
-          if [ -z "$DB_ID" ]; then
-            echo "Could not determine Cloudflare D1 database id." >&2
-            exit 1
-          fi
-
-          DB_ID="$DB_ID" ACCESS_CODE_HASH="${ACCESS_CODE_HASH:-}" node - <<'NODE'
+            if [ -n "$DB_ID" ]; then
+              DB_ID="$DB_ID" ACCESS_CODE_HASH="${ACCESS_CODE_HASH:-}" node - <<'NODE'
           const fs = require("fs");
           const file = "worker/wrangler.toml";
           let toml = fs.readFileSync(file, "utf8");
@@ -85,23 +101,30 @@ jobs:
           fs.writeFileSync(file, toml);
           NODE
 
-          cd worker
-          npx wrangler d1 migrations apply "$DB_NAME" --remote
-          npx wrangler deploy 2>&1 | tee ../worker-deploy.log
-          cd ..
+              (cd worker && npx wrangler d1 migrations apply "$DB_NAME" --remote)
+              MIGRATE_EXIT=$?
 
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/sakina-expert-feedback-api/environments/production/subdomain" \
-            --data '{"enabled":true}' || true
+              (cd worker && npx wrangler deploy 2>&1 | tee ../worker-deploy.log)
+              DEPLOY_EXIT=${PIPESTATUS[0]}
+            fi
 
-          SUBDOMAIN_JSON="$(curl -fsS \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" || true)"
-          DEPLOYMENTS_JSON="$(cd worker && npx wrangler deployments list --json --name sakina-expert-feedback-api 2>/dev/null || true)"
-          DEPLOYMENT_URL="$(DEPLOYMENTS_JSON="$DEPLOYMENTS_JSON" node - <<'NODE'
+            curl -fsS -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/${WORKER_NAME}/environments/production/subdomain" \
+              --data '{"enabled":true}'
+            ENABLE_SUBDOMAIN_EXIT=$?
+
+            SUBDOMAIN_JSON="$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" 2>subdomain.err)"
+            SUBDOMAIN_EXIT=$?
+
+            DEPLOYMENTS_JSON="$(cd worker && npx wrangler deployments list --json --name "$WORKER_NAME" 2>../deployments.err)"
+            DEPLOYMENTS_EXIT=$?
+
+            DEPLOYMENT_URL="$(DEPLOYMENTS_JSON="$DEPLOYMENTS_JSON" node - <<'NODE' 2>/dev/null
           const payload = JSON.parse(process.env.DEPLOYMENTS_JSON || "[]");
           const found = [];
           const visit = (value) => {
@@ -112,8 +135,9 @@ jobs:
           visit(payload);
           process.stdout.write((found[0] || "").replace(/[),.]+$/, ""));
           NODE
-          )"
-          WORKERS_SUBDOMAIN="$(SUBDOMAIN_JSON="$SUBDOMAIN_JSON" node - <<'NODE'
+            )"
+
+            WORKERS_SUBDOMAIN="$(SUBDOMAIN_JSON="$SUBDOMAIN_JSON" node - <<'NODE' 2>/dev/null
           const payload = JSON.parse(process.env.SUBDOMAIN_JSON || "{}");
           const result = payload?.result;
           const value =
@@ -125,26 +149,66 @@ jobs:
             "";
           process.stdout.write(value);
           NODE
-          )"
+            )"
 
-          WORKERS_SUBDOMAIN="${WORKERS_SUBDOMAIN:-saif-sedaoud}"
-
-          if [ -n "$DEPLOYMENT_URL" ]; then
-            WORKER_URL="$DEPLOYMENT_URL"
-          elif [ -n "$WORKERS_SUBDOMAIN" ]; then
-            WORKER_URL="https://sakina-expert-feedback-api.${WORKERS_SUBDOMAIN}.workers.dev"
-          else
-            WORKER_URL="$(node - <<'NODE'
+            LOG_URL="$(node - <<'NODE' 2>/dev/null
           const fs = require("fs");
-          const log = fs.readFileSync("worker-deploy.log", "utf8");
-          const match = log.match(/https:\/\/[^\s]+\.workers\.dev/);
-          if (!match) process.exit(1);
-          process.stdout.write(match[0].replace(/[),.]+$/, ""));
+          const log = fs.existsSync("worker-deploy.log") ? fs.readFileSync("worker-deploy.log", "utf8") : "";
+          const match = log.match(/https:\/\/[^\s"')]+\.workers\.dev/);
+          process.stdout.write(match ? match[0].replace(/[),.]+$/, "") : "");
           NODE
             )"
+
+            if [ -n "$DEPLOYMENT_URL" ]; then
+              WORKER_URL="$DEPLOYMENT_URL"
+            elif [ -n "$WORKERS_SUBDOMAIN" ]; then
+              WORKER_URL="https://${WORKER_NAME}.${WORKERS_SUBDOMAIN}.workers.dev"
+            elif [ -n "$LOG_URL" ]; then
+              WORKER_URL="$LOG_URL"
+            fi
           fi
 
           echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+
+          HAS_ACCOUNT_ID="$HAS_ACCOUNT_ID" \
+          HAS_API_TOKEN="$HAS_API_TOKEN" \
+          DB_LIST_EXIT="$DB_LIST_EXIT" \
+          DB_CREATE_EXIT="$DB_CREATE_EXIT" \
+          DB_ID_FOUND="$([ -n "$DB_ID" ] && echo true || echo false)" \
+          MIGRATE_EXIT="$MIGRATE_EXIT" \
+          DEPLOY_EXIT="$DEPLOY_EXIT" \
+          ENABLE_SUBDOMAIN_EXIT="$ENABLE_SUBDOMAIN_EXIT" \
+          SUBDOMAIN_EXIT="$SUBDOMAIN_EXIT" \
+          DEPLOYMENTS_EXIT="$DEPLOYMENTS_EXIT" \
+          DEPLOYMENT_URL_DETECTED="$([ -n "$DEPLOYMENT_URL" ] && echo true || echo false)" \
+          WORKERS_SUBDOMAIN_DETECTED="$([ -n "$WORKERS_SUBDOMAIN" ] && echo true || echo false)" \
+          WORKER_URL="$WORKER_URL" \
+          WORKER_NAME="$WORKER_NAME" \
+          DB_NAME="$DB_NAME" \
+          node - <<'NODE'
+          const fs = require("fs");
+          const num = (value) => Number.parseInt(value, 10);
+          const bool = (value) => value === "true";
+          const diagnostics = {
+            generatedAt: new Date().toISOString(),
+            workerName: process.env.WORKER_NAME,
+            databaseName: process.env.DB_NAME,
+            hasCloudflareAccountId: bool(process.env.HAS_ACCOUNT_ID),
+            hasCloudflareApiToken: bool(process.env.HAS_API_TOKEN),
+            d1ListExit: num(process.env.DB_LIST_EXIT),
+            d1CreateExit: num(process.env.DB_CREATE_EXIT),
+            d1DatabaseIdFound: bool(process.env.DB_ID_FOUND),
+            migrationExit: num(process.env.MIGRATE_EXIT),
+            deployExit: num(process.env.DEPLOY_EXIT),
+            enableWorkersDevSubdomainExit: num(process.env.ENABLE_SUBDOMAIN_EXIT),
+            accountSubdomainExit: num(process.env.SUBDOMAIN_EXIT),
+            deploymentsListExit: num(process.env.DEPLOYMENTS_EXIT),
+            deploymentUrlDetected: bool(process.env.DEPLOYMENT_URL_DETECTED),
+            workersSubdomainDetected: bool(process.env.WORKERS_SUBDOMAIN_DETECTED),
+            workerUrl: process.env.WORKER_URL || "",
+          };
+          fs.writeFileSync("public/data/cloudflare-diagnostics.json", `${JSON.stringify(diagnostics, null, 2)}\n`);
+          NODE
 
       - name: Resolve API base
         id: api
@@ -154,20 +218,44 @@ jobs:
         run: |
           if [ -n "${VITE_API_BASE_SECRET:-}" ]; then
             echo "url=${VITE_API_BASE_SECRET}" >> "$GITHUB_OUTPUT"
+            echo "source=secret" >> "$GITHUB_OUTPUT"
           else
             echo "url=${DETECTED_WORKER_URL:-}" >> "$GITHUB_OUTPUT"
+            if [ -n "${DETECTED_WORKER_URL:-}" ]; then
+              echo "source=worker" >> "$GITHUB_OUTPUT"
+            else
+              echo "source=missing" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Write runtime config
         env:
           API_BASE: ${{ steps.api.outputs.url }}
+          API_BASE_SOURCE: ${{ steps.api.outputs.source }}
         run: |
           mkdir -p public/data
-          API_BASE="${API_BASE:-}" node - <<'NODE'
+          API_BASE="${API_BASE:-}" API_BASE_SOURCE="${API_BASE_SOURCE:-missing}" node - <<'NODE'
           const fs = require("fs");
+          const diagnosticsPath = "public/data/cloudflare-diagnostics.json";
+          const diagnostics = fs.existsSync(diagnosticsPath)
+            ? JSON.parse(fs.readFileSync(diagnosticsPath, "utf8"))
+            : { generatedAt: new Date().toISOString() };
+          diagnostics.apiBaseConfigured = Boolean(process.env.API_BASE);
+          diagnostics.apiBaseSource = process.env.API_BASE_SOURCE || "missing";
+          fs.writeFileSync(diagnosticsPath, `${JSON.stringify(diagnostics, null, 2)}\n`);
           fs.writeFileSync(
             "public/data/runtime-config.json",
-            `${JSON.stringify({ apiBase: process.env.API_BASE || "", generatedAt: new Date().toISOString(), cloudflareRequired: true }, null, 2)}\n`,
+            `${JSON.stringify(
+              {
+                apiBase: process.env.API_BASE || "",
+                generatedAt: new Date().toISOString(),
+                cloudflareRequired: true,
+                apiBaseConfigured: Boolean(process.env.API_BASE),
+                apiBaseSource: process.env.API_BASE_SOURCE || "missing",
+              },
+              null,
+              2,
+            )}\n`,
           );
           NODE
 

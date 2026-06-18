@@ -99,7 +99,7 @@ function App() {
       .then((config) => {
         if (cancelled) return;
         setApiBase(config?.apiBase || config?.api_base || "");
-        setRemoteStatus(apiEnabled() ? "Cloudflare sync configured" : deployedMode ? "Cloudflare API not configured" : "Local prototype");
+        setRemoteStatus(apiEnabled() ? "Cloudflare sync configured" : deployedMode ? "Cloudflare API not configured" : "Local development mode");
         setRuntimeLoaded(true);
       });
 
@@ -150,7 +150,7 @@ function App() {
   }, [profile, sequence, study]);
 
   useEffect(() => {
-    if (!profile || apiEnabled()) return;
+    if (!profile || apiEnabled() || deployedMode) return;
     const email = normalizeEmail(profile.email);
     if (!email) return;
     setAccounts((current) => ({
@@ -162,7 +162,7 @@ function App() {
         updated_at_utc: nowUtc(),
       },
     }));
-  }, [profile, responses, sequence]);
+  }, [deployedMode, profile, responses, sequence]);
 
   useEffect(() => {
     if (!profile && route !== ROUTES.access) go(ROUTES.access);
@@ -235,6 +235,10 @@ function App() {
       return { existing: false, email: normalizedEmail };
     }
 
+    if (deployedMode) {
+      throw new Error("Cloudflare API is not configured for this deployment. Responses cannot be stored until the Worker URL is available.");
+    }
+
     await verifyLocalAccessCode(accessCode);
     const account = accounts[normalizedEmail];
     if (account?.profile) {
@@ -285,6 +289,9 @@ function App() {
         setRemoteStatus("Cloudflare session ready; history will retry after the first save");
       }
     } else {
+      if (deployedMode) {
+        throw new Error("Cloudflare API is not configured for this deployment. Responses cannot be stored until the Worker URL is available.");
+      }
       await verifyLocalAccessCode(accessCode);
     }
 
@@ -304,20 +311,37 @@ function App() {
   }
 
   async function saveResponse(response) {
-    const optimistic = apiEnabled() ? { ...response, synced: false } : { ...response, synced: null };
-    setResponses((current) => upsertResponse(current, optimistic));
+    if (deployedMode && !apiEnabled()) {
+      setRemoteStatus("Cloudflare API is not configured; response was not saved.");
+      return;
+    }
+
+    let saved = false;
 
     if (apiEnabled()) {
+      const previous = responseMap.get(response.comparison_id);
+      setResponses((current) => upsertResponse(current, { ...response, synced: false }));
+
       try {
         const token = localStorage.getItem(STORAGE_KEYS.token);
         await postJSON("/api/response", { token, response });
         setResponses((current) => upsertResponse(current, { ...response, synced: true, synced_at_utc: nowUtc() }));
         setRemoteStatus("Saved to Cloudflare");
+        saved = true;
       } catch (error) {
-        setResponses((current) => upsertResponse(current, { ...response, synced: false, sync_error: error?.message || "Upload failed" }));
-        setRemoteStatus(`Saved locally; Cloudflare sync pending: ${error?.message || "request failed"}`);
+        setResponses((current) =>
+          previous
+            ? upsertResponse(current, { ...previous, sync_error: error?.message || "Upload failed" })
+            : current.filter((item) => item.comparison_id !== response.comparison_id),
+        );
+        setRemoteStatus(`Cloudflare save failed; retry this response: ${error?.message || "request failed"}`);
       }
+    } else {
+      setResponses((current) => upsertResponse(current, { ...response, synced: null }));
+      saved = true;
     }
+
+    if (!saved) return;
 
     const next = sequence.find((item) => item.comparisonId !== response.comparison_id && !responseMap.has(item.comparisonId));
     if (next) setActiveComparisonId(next.comparisonId);
@@ -513,7 +537,7 @@ function AccessPage({ cloudMode, deployedMode, onAccess, onSubmit }) {
 
     try {
       setSubmitting(true);
-      setStatus(cloudMode ? "Opening Cloudflare session..." : "Opening local review session...");
+      setStatus(cloudMode ? "Opening Cloudflare session..." : deployedMode ? "Waiting for Cloudflare API..." : "Opening local development session...");
       await onSubmit(profile);
     } catch (error) {
       setStatus(error?.message || "Could not start the session.");
@@ -571,8 +595,8 @@ function AccessPage({ cloudMode, deployedMode, onAccess, onSubmit }) {
           {cloudMode
             ? "Responses will sync to the configured Cloudflare Worker."
             : deployedMode
-              ? "Cloudflare API is not configured for this deployment."
-              : "Local mode: responses stay in this browser until Cloudflare is configured."}
+              ? "Cloudflare API is not configured for this deployment; responses cannot be stored yet."
+              : "Local development mode: responses stay in this browser while you test locally."}
         </div>
         {status && <div className="statusBanner">{status}</div>}
       </section>
