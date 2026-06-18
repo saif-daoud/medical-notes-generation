@@ -60,7 +60,12 @@ jobs:
           ENABLE_SUBDOMAIN_EXIT=-1
           SUBDOMAIN_EXIT=-1
           DEPLOYMENTS_EXIT=-1
+          D1_API_LIST_EXIT=-1
+          D1_API_CREATE_EXIT=-1
+          D1_API_DB_ID_FOUND=false
           DB_ID=""
+          D1_API_LIST_JSON=""
+          D1_API_CREATE_JSON=""
           DB_LIST_JSON=""
           CREATE_JSON=""
           SUBDOMAIN_JSON=""
@@ -70,15 +75,49 @@ jobs:
           WORKER_URL=""
 
           if [ "$HAS_ACCOUNT_ID" = true ] && [ "$HAS_API_TOKEN" = true ]; then
-            DB_LIST_JSON="$(cd worker && npx wrangler d1 list --json 2>../d1-list.err)"
-            DB_LIST_EXIT=$?
-            DB_ID="$(DB_LIST_JSON="$DB_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE' 2>/dev/null
-          const payload = JSON.parse(process.env.DB_LIST_JSON || "[]");
+            D1_API_LIST_JSON="$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?per_page=100" 2>d1-api-list.err)"
+            D1_API_LIST_EXIT=$?
+            DB_ID="$(D1_API_LIST_JSON="$D1_API_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE' 2>/dev/null
+          const payload = JSON.parse(process.env.D1_API_LIST_JSON || "{}");
           const rows = Array.isArray(payload) ? payload : payload.result || payload.databases || [];
           const match = rows.find((row) => row.name === process.env.DB_NAME);
           process.stdout.write(match?.uuid || match?.id || match?.database_id || "");
           NODE
             )"
+
+            if [ -z "$DB_ID" ]; then
+              D1_API_CREATE_JSON="$(curl -fsS -X POST \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database" \
+                --data "{\"name\":\"${DB_NAME}\"}" 2>d1-api-create.err)"
+              D1_API_CREATE_EXIT=$?
+              DB_ID="$(D1_API_CREATE_JSON="$D1_API_CREATE_JSON" node - <<'NODE' 2>/dev/null
+          const payload = JSON.parse(process.env.D1_API_CREATE_JSON || "{}");
+          const row = Array.isArray(payload) ? payload[0] : payload.result || payload;
+          process.stdout.write(row?.uuid || row?.id || row?.database_id || "");
+          NODE
+              )"
+            fi
+
+            if [ -n "$DB_ID" ]; then
+              D1_API_DB_ID_FOUND=true
+            fi
+
+            if [ -z "$DB_ID" ]; then
+              DB_LIST_JSON="$(cd worker && npx wrangler d1 list --json 2>../d1-list.err)"
+              DB_LIST_EXIT=$?
+              DB_ID="$(DB_LIST_JSON="$DB_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE' 2>/dev/null
+          const payload = JSON.parse(process.env.DB_LIST_JSON || "[]");
+          const rows = Array.isArray(payload) ? payload : payload.result || payload.databases || [];
+          const match = rows.find((row) => row.name === process.env.DB_NAME);
+          process.stdout.write(match?.uuid || match?.id || match?.database_id || "");
+          NODE
+              )"
+            fi
 
             if [ -z "$DB_ID" ]; then
               CREATE_JSON="$(cd worker && npx wrangler d1 create "$DB_NAME" --json 2>../d1-create.err)"
@@ -89,6 +128,24 @@ jobs:
           process.stdout.write(row?.uuid || row?.id || row?.database_id || "");
           NODE
               )"
+            fi
+
+            if [ -z "$DB_ID" ] && [ "$D1_API_CREATE_EXIT" -eq 0 ]; then
+              D1_API_LIST_JSON="$(curl -fsS \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?per_page=100" 2>d1-api-list-after-create.err)"
+              DB_ID="$(D1_API_LIST_JSON="$D1_API_LIST_JSON" DB_NAME="$DB_NAME" node - <<'NODE' 2>/dev/null
+          const payload = JSON.parse(process.env.D1_API_LIST_JSON || "{}");
+          const rows = Array.isArray(payload) ? payload : payload.result || payload.databases || [];
+          const match = rows.find((row) => row.name === process.env.DB_NAME);
+          process.stdout.write(match?.uuid || match?.id || match?.database_id || "");
+          NODE
+              )"
+            fi
+
+            if [ -n "$DB_ID" ]; then
+              D1_API_DB_ID_FOUND=true
             fi
 
             if [ -n "$DB_ID" ]; then
@@ -176,6 +233,9 @@ jobs:
           HAS_API_TOKEN="$HAS_API_TOKEN" \
           DB_LIST_EXIT="$DB_LIST_EXIT" \
           DB_CREATE_EXIT="$DB_CREATE_EXIT" \
+          D1_API_LIST_EXIT="$D1_API_LIST_EXIT" \
+          D1_API_CREATE_EXIT="$D1_API_CREATE_EXIT" \
+          D1_API_DB_ID_FOUND="$D1_API_DB_ID_FOUND" \
           DB_ID_FOUND="$([ -n "$DB_ID" ] && echo true || echo false)" \
           MIGRATE_EXIT="$MIGRATE_EXIT" \
           DEPLOY_EXIT="$DEPLOY_EXIT" \
@@ -191,12 +251,22 @@ jobs:
           const fs = require("fs");
           const num = (value) => Number.parseInt(value, 10);
           const bool = (value) => value === "true";
+          const snippet = (file) => {
+            if (!fs.existsSync(file)) return "";
+            return fs
+              .readFileSync(file, "utf8")
+              .replace(/[A-Za-z0-9_-]{30,}/g, "[redacted]")
+              .slice(0, 600);
+          };
           const diagnostics = {
             generatedAt: new Date().toISOString(),
             workerName: process.env.WORKER_NAME,
             databaseName: process.env.DB_NAME,
             hasCloudflareAccountId: bool(process.env.HAS_ACCOUNT_ID),
             hasCloudflareApiToken: bool(process.env.HAS_API_TOKEN),
+            d1ApiListExit: num(process.env.D1_API_LIST_EXIT),
+            d1ApiCreateExit: num(process.env.D1_API_CREATE_EXIT),
+            d1ApiDatabaseIdFound: bool(process.env.D1_API_DB_ID_FOUND),
             d1ListExit: num(process.env.DB_LIST_EXIT),
             d1CreateExit: num(process.env.DB_CREATE_EXIT),
             d1DatabaseIdFound: bool(process.env.DB_ID_FOUND),
@@ -208,6 +278,14 @@ jobs:
             deploymentUrlDetected: bool(process.env.DEPLOYMENT_URL_DETECTED),
             workersSubdomainDetected: bool(process.env.WORKERS_SUBDOMAIN_DETECTED),
             workerUrl: process.env.WORKER_URL || "",
+            errors: {
+              d1ApiList: snippet("d1-api-list.err"),
+              d1ApiCreate: snippet("d1-api-create.err"),
+              d1List: snippet("d1-list.err"),
+              d1Create: snippet("d1-create.err"),
+              deploymentsList: snippet("deployments.err"),
+              accountSubdomain: snippet("subdomain.err"),
+            },
           };
           fs.writeFileSync("public/data/cloudflare-diagnostics.json", `${JSON.stringify(diagnostics, null, 2)}\n`);
           NODE
