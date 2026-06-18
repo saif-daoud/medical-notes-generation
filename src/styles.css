@@ -878,6 +878,7 @@ button {
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   text-align: left;
+  vertical-align: middle;
 }
 
 .pairTable th {
@@ -886,6 +887,34 @@ button {
   background: #f7f9fc;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.countCell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 180px;
+}
+
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 10px;
+  color: #0b5f59;
+  background: #e7f5f1;
+  border: 1px solid #bee3da;
+  border-radius: 999px;
+  font-weight: 950;
+}
+
+.countBadge.neutral {
+  color: #4d5c71;
+  background: #eef2f5;
+  border-color: var(--line);
 }
 
 .muted {

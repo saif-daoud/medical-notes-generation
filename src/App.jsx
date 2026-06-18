@@ -36,12 +36,6 @@ const ROUTES = {
   stats: "stats",
 };
 
-const CHOICE_LABELS = {
-  left: "Option 1",
-  tie: "Tie",
-  right: "Option 2",
-};
-
 function routeFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   return Object.values(ROUTES).includes(hash) ? hash : ROUTES.access;
@@ -171,6 +165,11 @@ function App() {
   useEffect(() => {
     if (!activeComparisonId && firstUnanswered) setActiveComparisonId(firstUnanswered.comparisonId);
   }, [activeComparisonId, firstUnanswered]);
+
+  useEffect(() => {
+    if (route === ROUTES.stats && apiEnabled()) void refreshRemoteStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route]);
 
   async function refreshRemoteStats() {
     if (!apiEnabled()) return;
@@ -360,9 +359,7 @@ function App() {
         <StatsPage
           study={study}
           profile={profile}
-          sequence={sequence}
           responses={responses}
-          responseMap={responseMap}
           remoteStats={remoteStats}
           onRefreshRemoteStats={refreshRemoteStats}
         />
@@ -826,18 +823,67 @@ function CompletionPanel({ study, responses }) {
   );
 }
 
-function StatsPage({ study, profile, sequence, responses, responseMap, remoteStats, onRefreshRemoteStats }) {
+function StatsPage({ study, profile, responses, remoteStats, onRefreshRemoteStats }) {
+  const outputName = useMemo(() => {
+    return new Map(study.outputs.map((output) => [output.id, output.statsLabel || output.label]));
+  }, [study.outputs]);
+  const pairCounts = useMemo(() => {
+    const counts = new Map();
+    for (const comparison of study.comparisons) {
+      counts.set(comparison.id, {
+        comparison_id: comparison.id,
+        option_1_count: 0,
+        tie_count: 0,
+        option_2_count: 0,
+        total_count: 0,
+      });
+    }
+
+    const remoteRows = Array.isArray(remoteStats?.pair_counts) ? remoteStats.pair_counts : null;
+    if (remoteRows) {
+      for (const row of remoteRows) {
+        const existing = counts.get(String(row.comparison_id || ""));
+        if (!existing) continue;
+        counts.set(existing.comparison_id, {
+          comparison_id: existing.comparison_id,
+          option_1_count: Number(row.option_1_count || 0),
+          tie_count: Number(row.tie_count || 0),
+          option_2_count: Number(row.option_2_count || 0),
+          total_count: Number(row.total_count || 0),
+        });
+      }
+      return counts;
+    }
+
+    for (const response of responses) {
+      const row = counts.get(response.comparison_id);
+      const comparison = study.comparisons.find((item) => item.id === response.comparison_id);
+      if (!row || !comparison) continue;
+      const [option1Id, option2Id] = comparison.outputIds;
+
+      row.total_count += 1;
+      if (response.winner_choice === "tie") row.tie_count += 1;
+      else if (response.selected_output_id === option1Id) row.option_1_count += 1;
+      else if (response.selected_output_id === option2Id) row.option_2_count += 1;
+    }
+    return counts;
+  }, [remoteStats, responses, study.comparisons]);
   const outputWins = useMemo(() => {
-    const rows = study.outputs.map((output) => ({
-      id: output.id,
-      label: output.label,
-      wins: responses.filter((response) => response.selected_output_id === output.id).length,
-      appearances: responses.filter((response) => response.left_output_id === output.id || response.right_output_id === output.id).length,
-    }));
+    const remoteWins = new Map(
+      (Array.isArray(remoteStats?.output_wins) ? remoteStats.output_wins : []).map((row) => [String(row.selected_output_id || ""), Number(row.n || 0)]),
+    );
+    const rows = study.outputs.map((output) => {
+      const localWins = responses.filter((response) => response.selected_output_id === output.id).length;
+      return {
+        id: output.id,
+        label: output.statsLabel || output.label,
+        wins: remoteStats ? remoteWins.get(output.id) || 0 : localWins,
+      };
+    });
     return rows.sort((a, b) => b.wins - a.wins || a.label.localeCompare(b.label));
-  }, [responses, study.outputs]);
-  const tieCount = responses.filter((response) => response.winner_choice === "tie").length;
+  }, [remoteStats, responses, study.outputs]);
   const remaining = Math.max(study.comparisonCount - responses.length, 0);
+  const allComparisonsMade = Number(remoteStats?.total_responses ?? responses.length);
 
   function exportResponses() {
     downloadJson(`sakina-soap-responses-${profile.participant_id}.json`, {
@@ -845,8 +891,8 @@ function StatsPage({ study, profile, sequence, responses, responseMap, remoteSta
       participant: profile,
       local_summary: {
         total_comparisons_made: responses.length,
+        all_comparisons_made_if_loaded: allComparisonsMade,
         required_comparisons: study.comparisonCount,
-        ties: tieCount,
       },
       responses,
     });
@@ -857,7 +903,7 @@ function StatsPage({ study, profile, sequence, responses, responseMap, remoteSta
       <section className="statsHeader">
         <div>
           <div className="eyebrow">Statistics</div>
-          <h1>Review progress and local results</h1>
+          <h1>Review progress and aggregate results</h1>
         </div>
         <div className="statsActions">
           {apiEnabled() && (
@@ -877,7 +923,7 @@ function StatsPage({ study, profile, sequence, responses, responseMap, remoteSta
         <Metric label="Total comparisons made" value={responses.length} />
         <Metric label="Required comparisons" value={study.comparisonCount} />
         <Metric label="Remaining" value={remaining} />
-        <Metric label="Ties" value={tieCount} />
+        <Metric label="All comparisons made" value={allComparisonsMade} />
       </section>
 
       {remoteStats && (
@@ -914,22 +960,27 @@ function StatsPage({ study, profile, sequence, responses, responseMap, remoteSta
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Pair</th>
-                  <th>Status</th>
-                  <th>Decision</th>
+                  <th>Option 1</th>
+                  <th>Tie</th>
+                  <th>Option 2</th>
                 </tr>
               </thead>
               <tbody>
-                {sequence.map((item) => {
-                  const left = study.outputs.find((output) => output.id === item.leftOutputId);
-                  const right = study.outputs.find((output) => output.id === item.rightOutputId);
-                  const response = responseMap.get(item.comparisonId);
+                {study.comparisons.map((comparison, index) => {
+                  const [option1Id, option2Id] = comparison.outputIds;
+                  const counts = pairCounts.get(comparison.id) || {};
                   return (
-                    <tr key={item.comparisonId}>
-                      <td>{item.sequenceIndex}</td>
-                      <td>{left?.label} vs {right?.label}</td>
-                      <td>{response ? "Done" : "Open"}</td>
-                      <td>{response ? CHOICE_LABELS[response.winner_choice] : ""}</td>
+                    <tr key={comparison.id}>
+                      <td>{index + 1}</td>
+                      <td>
+                        <CountCell name={outputName.get(option1Id) || option1Id} count={counts.option_1_count || 0} />
+                      </td>
+                      <td>
+                        <span className="countBadge neutral">{counts.tie_count || 0}</span>
+                      </td>
+                      <td>
+                        <CountCell name={outputName.get(option2Id) || option2Id} count={counts.option_2_count || 0} />
+                      </td>
                     </tr>
                   );
                 })}
@@ -939,6 +990,15 @@ function StatsPage({ study, profile, sequence, responses, responseMap, remoteSta
         </div>
       </section>
     </main>
+  );
+}
+
+function CountCell({ name, count }) {
+  return (
+    <div className="countCell">
+      <span>{name}</span>
+      <span className="countBadge">{count}</span>
+    </div>
   );
 }
 

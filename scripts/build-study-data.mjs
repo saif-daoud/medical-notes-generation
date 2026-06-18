@@ -11,14 +11,14 @@ const outputRoot = path.join(appRoot, "public", "data");
 const studyOutputPath = path.join(outputRoot, "study-data.json");
 
 const OUTPUTS = [
-  { id: "output_a", label: "Output A", file: "acegpt_7b_session_output.json", usesTranslatedTranscript: false },
-  { id: "output_b", label: "Output B", file: "allam_7b_session_output.json", usesTranslatedTranscript: false },
-  { id: "output_c", label: "Output C", file: "deepseek_v32_session_output.json", usesTranslatedTranscript: true },
-  { id: "output_d", label: "Output D", file: "falcon_h1_3b_session_output.json", usesTranslatedTranscript: false },
-  { id: "output_e", label: "Output E", file: "fanar2_27b_session_output.json", usesTranslatedTranscript: false },
-  { id: "output_f", label: "Output F", file: "gemma4_31b_it_session_output.json", usesTranslatedTranscript: false },
-  { id: "output_g", label: "Output G", file: "gpt4_1_session_output.json", usesTranslatedTranscript: true },
-  { id: "output_h", label: "Output H", file: "llama_33_70b_session_output.json", usesTranslatedTranscript: true },
+  { id: "output_a", label: "Output A", statsLabel: "AceGPT-v2-8B-Chat", file: "acegpt_7b_session_output.json", usesTranslatedTranscript: false },
+  { id: "output_b", label: "Output B", statsLabel: "ALLAM-7B", file: "allam_7b_session_output.json", usesTranslatedTranscript: false },
+  { id: "output_c", label: "Output C", statsLabel: "DeepSeek-V3.2", file: "deepseek_v32_session_output.json", usesTranslatedTranscript: true },
+  { id: "output_d", label: "Output D", statsLabel: "Falcon-H1-3B", file: "falcon_h1_3b_session_output.json", usesTranslatedTranscript: false },
+  { id: "output_e", label: "Output E", statsLabel: "Fanar-2-27B-Instruct", file: "fanar2_27b_session_output.json", usesTranslatedTranscript: false },
+  { id: "output_f", label: "Output F", statsLabel: "Gemma-4-31B-it", file: "gemma4_31b_it_session_output.json", usesTranslatedTranscript: false },
+  { id: "output_g", label: "Output G", statsLabel: "GPT-4.1", file: "gpt4_1_session_output.json", usesTranslatedTranscript: true },
+  { id: "output_h", label: "Output H", statsLabel: "Llama-3.3-70B-Instruct", file: "llama_33_70b_session_output.json", usesTranslatedTranscript: true },
 ];
 
 async function readText(fileName) {
@@ -71,6 +71,7 @@ async function main() {
     outputs.push({
       id: spec.id,
       label: spec.label,
+      statsLabel: raw?.metadata?.model_name || spec.statsLabel,
       usesTranslatedTranscript: spec.usesTranslatedTranscript,
       payload: stripPrivateMetadata(raw),
     });

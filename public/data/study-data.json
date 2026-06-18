@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-18T12:53:59.061Z",
+  "generatedAt": "2026-06-18T13:23:33.181Z",
   "title": "Sakina SOAP Output Preference Review",
   "outputCount": 8,
   "comparisonCount": 28,
@@ -11,6 +11,7 @@
     {
       "id": "output_a",
       "label": "Output A",
+      "statsLabel": "FreedomIntelligence/AceGPT-v2-8B-Chat",
       "usesTranslatedTranscript": false,
       "payload": {
         "conversation_summary": "The patient, Maram, a 28-year-old Qatari woman, engaged, and working in a governmental sector, sought help due to pre-wedding anxiety and family and societal expectations. She has a supportive older sister. The therapist reassured her about confidentiality and encouraged her to speak at her own pace. Maram expressed that her anxiety has been increasing, especially regarding her engagement and family expectations. She feels guilty about her anxiety and hesitations. She avoids discussing serious matters with her fiancé and family, fearing judgment. The therapist helped her differentiate between normal anxiety and a need for self-understanding and responsible decision-making. Maram agreed to explore her concerns with her fiancé in a calm and respectful manner, and to seek clarity from her family without appearing to reject their wishes. She also discussed her religious beliefs and the role of faith in her anxiety and self-criticism. The therapist suggested writing down her nighttime thoughts, analyzing them, and preparing three questions to ask her fiancé about work, study, and decision-making post-marriage. Maram felt relieved and looked forward to the next session.",
@@ -106,6 +107,7 @@
     {
       "id": "output_b",
       "label": "Output B",
+      "statsLabel": "ALLAM-7B",
       "usesTranslatedTranscript": false,
       "payload": {
         "conversation_summary": "Maryam, a 28-year-old Qatari woman, is experiencing anxiety and psychological stress related to her engagement and the expectations of her family and society. She feels guilty about her anxiety and hesitation, but she is not thinking about harming herself. She has support from her older sister.",
@@ -196,6 +198,7 @@
     {
       "id": "output_c",
       "label": "Output C",
+      "statsLabel": "DeepSeek-V3.2",
       "usesTranslatedTranscript": true,
       "payload": {
         "conversation_summary": "The patient, Maryam, is a 28-year-old engaged Qatari woman seeking help for increased anxiety and psychological stress related to her engagement and family/societal expectations. She reports trying to rely on patience and prayer but feeling guilty about her persistent anxiety and hesitation. Key concerns include fear of losing her independence and voice after marriage, disappointing her parents, and societal judgment. The therapist provided psychoeducation, normalized her feelings, and helped her distinguish between normal pre-marital anxiety and legitimate concerns about compatibility. They collaboratively identified a cycle of anxious thoughts, fear, and avoidance. A safety assessment was conducted, with the patient denying any thoughts of self-harm. The session concluded with a plan for the patient to write down her thoughts, gather evidence for and against them, and prepare specific questions to clarify expectations with her fiancé, with the goal of gathering information rather than making an immediate decision.",
@@ -327,6 +330,7 @@
     {
       "id": "output_d",
       "label": "Output D",
+      "statsLabel": "Falcon-H1-3B",
       "usesTranslatedTranscript": false,
       "payload": {
         "conversation_summary": "The patient, Mira, a 28-year-old engaged woman from Qatar working in a governmental office, expressed anxiety and pressure related to her upcoming marriage and family/society expectations. She values her faith and prays but feels guilty and distressed about her worries. She fears losing her independence after marriage, particularly in her career and studies. The session focused on exploring her concerns, distinguishing between normal pre-marital anxiety and irrational fears, and planning how to address her worries in a healthy way. Mira indicated she does not have suicidal thoughts but experiences significant distress and avoidance behaviors. Her support system includes her older sister, who is seen as a source of understanding and advice. The clinician emphasized the importance of differentiating between fear and irrational thoughts, and discussed strategies to confront her fears constructively. The plan includes writing down intrusive thoughts, examining evidence for and against them, and preparing questions to discuss with her fiancé to gain clarity on future expectations.",
@@ -429,6 +433,7 @@
     {
       "id": "output_e",
       "label": "Output E",
+      "statsLabel": "QCRI/Fanar-2-27B-Instruct",
       "usesTranslatedTranscript": false,
       "payload": {
         "conversation_summary": "مريم، امرأة قطرية تبلغ من العمر 28 عامًا، طلبت المساعدة بسبب القلق والضغط النفسي المرتبط بخطوبتها وتوقعات الأسرة والمجتمع. تعاني من أفكار سلبية حول اتخاذ القرار الخطأ وخيبة أمل أهلها، مما يؤثر على نومها وعلاقاتها. خلال الجلسة، ساعدها المعالج على فهم أن الخوف ليس خطأ، واقترح عليها اختبار مخاوفها عبر حوار هادئ مع خطيبها وأهلها. تم الاتفاق على مهام بين الجلسات مثل كتابة الأفكار السلبية وجمع أدلة لدعمها أو تخفيفها، بالإضافة إلى إعداد أسئلة لطرحها على خطيبها. الجلسة القادمة ستُركز على متابعة تقدمها في التعامل مع القلق.",
@@ -538,6 +543,7 @@
     {
       "id": "output_f",
       "label": "Output F",
+      "statsLabel": "google/gemma-4-31B-it",
       "usesTranslatedTranscript": false,
       "payload": {
         "conversation_summary": "Maryam, a 28-year-old Qatari woman employed in a government position, sought help due to increasing anxiety and psychological pressure related to her engagement. She expressed conflict between her desire for independence in her career and studies and the traditional expectations of her fiancé, family, and society. She reported feelings of guilt, fearing that her hesitation reflects a lack of faith or gratitude, and expressed concern about disappointing her parents or facing social judgment if the engagement ended.",
@@ -662,6 +668,7 @@
     {
       "id": "output_g",
       "label": "Output G",
+      "statsLabel": "gpt-4.1",
       "usesTranslatedTranscript": true,
       "payload": {
         "conversation_summary": "Maryam, a 28-year-old Qatari woman engaged and working in a government agency, sought therapy due to increasing anxiety and psychological stress related to her engagement and the expectations of her family and society. She described feelings of guilt about her anxiety, concerns about losing her independence after marriage, and fears of disappointing her family or being judged by others. The therapist explored her thoughts and emotions, normalized her fears, and helped her distinguish between rational concerns and anxiety-driven worries. They discussed the importance of open communication with her fiancé and family, and the therapist reassured her about her faith and coping strategies. The session concluded with a plan for Maryam to write down her thoughts, gather evidence for and against them, and prepare specific questions to discuss with her fiancé, with the aim of gaining clarity before making any decisions.",
@@ -796,6 +803,7 @@
     {
       "id": "output_h",
       "label": "Output H",
+      "statsLabel": "Llama-3.3-70B-Instruct",
       "usesTranslatedTranscript": true,
       "payload": {
         "conversation_summary": "Maryam, a 28-year-old Qatari woman, is experiencing anxiety and psychological stress related to her engagement and family/societal expectations. She feels guilty about her anxiety and hesitation, fearing she might lose her independence after marriage. The therapist helps her distinguish between normal fear and excessive pressure, encouraging her to have open and respectful conversations with her fiancé and family. A plan is made for Maryam to write down her thoughts, gather evidence for and against them, and prepare questions to ask her fiancé about their future together.",

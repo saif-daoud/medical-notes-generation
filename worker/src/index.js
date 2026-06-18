@@ -238,6 +238,38 @@ async function stats(env) {
     .prepare("SELECT selected_output_id, COUNT(*) AS n FROM responses WHERE selected_output_id IS NOT NULL GROUP BY selected_output_id ORDER BY n DESC")
     .all();
   const ties = await env.DB.prepare("SELECT COUNT(*) AS n FROM responses WHERE winner_choice = 'tie'").first();
+  const responseRows = await env.DB
+    .prepare("SELECT comparison_id, winner_choice, selected_output_id, left_output_id, right_output_id FROM responses")
+    .all();
+  const pairCounts = new Map();
+
+  for (const row of responseRows?.results || []) {
+    const comparisonId = String(row.comparison_id || "");
+    const match = /^cmp_([a-z])_([a-z])$/.exec(comparisonId);
+    if (!match) continue;
+    const option1Id = `output_${match[1]}`;
+    const option2Id = `output_${match[2]}`;
+    const current =
+      pairCounts.get(comparisonId) ||
+      {
+        comparison_id: comparisonId,
+        option_1_count: 0,
+        tie_count: 0,
+        option_2_count: 0,
+        total_count: 0,
+      };
+
+    current.total_count += 1;
+    if (row.winner_choice === "tie") current.tie_count += 1;
+    else if (row.selected_output_id === option1Id) current.option_1_count += 1;
+    else if (row.selected_output_id === option2Id) current.option_2_count += 1;
+    else if (row.winner_choice === "left" && row.left_output_id === option1Id) current.option_1_count += 1;
+    else if (row.winner_choice === "left" && row.left_output_id === option2Id) current.option_2_count += 1;
+    else if (row.winner_choice === "right" && row.right_output_id === option1Id) current.option_1_count += 1;
+    else if (row.winner_choice === "right" && row.right_output_id === option2Id) current.option_2_count += 1;
+
+    pairCounts.set(comparisonId, current);
+  }
 
   return {
     total_responses: Number(total?.n || 0),
@@ -245,6 +277,7 @@ async function stats(env) {
     distinct_comparisons: Number(comparisons?.n || 0),
     ties: Number(ties?.n || 0),
     output_wins: outputWins?.results || [],
+    pair_counts: [...pairCounts.values()].sort((a, b) => a.comparison_id.localeCompare(b.comparison_id)),
   };
 }
 
