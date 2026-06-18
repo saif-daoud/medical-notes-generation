@@ -41,7 +41,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ACCESS_CODE_HASH: ${{ secrets.ACCESS_CODE_HASH }}
         run: |
-          set -uo pipefail
+          set +e
+          set -u
+          set -o pipefail
 
           mkdir -p public/data
           WORKER_NAME="sakina-expert-feedback-api"
