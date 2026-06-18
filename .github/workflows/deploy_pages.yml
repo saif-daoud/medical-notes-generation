@@ -90,15 +90,31 @@ jobs:
           npx wrangler deploy 2>&1 | tee ../worker-deploy.log
           cd ..
 
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/sakina-expert-feedback-api/environments/production/subdomain" \
+            --data '{"enabled":true}' || true
+
           SUBDOMAIN_JSON="$(curl -fsS \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" || true)"
           WORKERS_SUBDOMAIN="$(SUBDOMAIN_JSON="$SUBDOMAIN_JSON" node - <<'NODE'
           const payload = JSON.parse(process.env.SUBDOMAIN_JSON || "{}");
-          process.stdout.write(payload?.result?.subdomain || "");
+          const result = payload?.result;
+          const value =
+            (typeof result === "string" ? result : "") ||
+            result?.subdomain ||
+            result?.name ||
+            result?.id ||
+            result?.workers_dev_subdomain ||
+            "";
+          process.stdout.write(value);
           NODE
           )"
+
+          WORKERS_SUBDOMAIN="${WORKERS_SUBDOMAIN:-saif-sedaoud}"
 
           if [ -n "$WORKERS_SUBDOMAIN" ]; then
             WORKER_URL="https://sakina-expert-feedback-api.${WORKERS_SUBDOMAIN}.workers.dev"
@@ -126,6 +142,19 @@ jobs:
           else
             echo "url=${DETECTED_WORKER_URL:-}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Write runtime config
+        env:
+          API_BASE: ${{ steps.api.outputs.url }}
+        run: |
+          mkdir -p public/data
+          API_BASE="${API_BASE:-}" node - <<'NODE'
+          const fs = require("fs");
+          fs.writeFileSync(
+            "public/data/runtime-config.json",
+            `${JSON.stringify({ apiBase: process.env.API_BASE || "", generatedAt: new Date().toISOString() }, null, 2)}\n`,
+          );
+          NODE
 
       - name: Build
         env:

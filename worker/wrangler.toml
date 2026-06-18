@@ -1,6 +1,7 @@
 name = "sakina-expert-feedback-api"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
+workers_dev = true
 
 [[d1_databases]]
 binding = "DB"

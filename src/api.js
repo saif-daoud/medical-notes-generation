@@ -6,20 +6,30 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE = String(import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const BUILD_API_BASE = String(import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+let runtimeApiBase = BUILD_API_BASE;
+
+export function setApiBase(value) {
+  runtimeApiBase = String(value || BUILD_API_BASE || "").replace(/\/$/, "");
+}
+
+export function getApiBase() {
+  return runtimeApiBase;
+}
 
 export function apiEnabled() {
-  return Boolean(API_BASE);
+  return Boolean(getApiBase());
 }
 
 export async function postJSON(path, body, options = {}) {
-  if (!API_BASE) throw new Error("API is not configured.");
+  const apiBase = getApiBase();
+  if (!apiBase) throw new Error("API is not configured.");
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 14000);
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${apiBase}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

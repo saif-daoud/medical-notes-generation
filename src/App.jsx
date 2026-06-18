@@ -21,7 +21,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { apiEnabled, postJSON } from "./api.js";
+import { apiEnabled, postJSON, setApiBase } from "./api.js";
 import { OutputViewer, TextModal } from "./renderers.jsx";
 import { STORAGE_KEYS, clearStudyStorage, loadJson, saveJson } from "./storage.js";
 import { downloadJson, makeParticipantId, makeSequence, nowUtc, sha256Hex } from "./utils.js";
@@ -73,13 +73,15 @@ function App() {
   const [route, setRoute] = useState(routeFromHash);
   const [study, setStudy] = useState(null);
   const [loadError, setLoadError] = useState("");
+  const [runtimeLoaded, setRuntimeLoaded] = useState(false);
   const [accounts, setAccounts] = useState(() => loadJson(STORAGE_KEYS.accounts, {}));
   const [profile, setProfile] = useState(null);
   const [responses, setResponses] = useState([]);
   const [sequence, setSequence] = useState([]);
   const [activeComparisonId, setActiveComparisonId] = useState("");
   const [remoteStats, setRemoteStats] = useState(null);
-  const [remoteStatus, setRemoteStatus] = useState(apiEnabled() ? "Cloudflare sync configured" : "Local prototype");
+  const [remoteStatus, setRemoteStatus] = useState("Checking Cloudflare connection...");
+  const deployedMode = typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 
   useEffect(() => {
     document.title = "Sakina SOAP Review";
@@ -87,6 +89,24 @@ function App() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`${import.meta.env.BASE_URL}data/runtime-config.json`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null)
+      .then((config) => {
+        if (cancelled) return;
+        setApiBase(config?.apiBase || config?.api_base || "");
+        setRemoteStatus(apiEnabled() ? "Cloudflare sync configured" : deployedMode ? "Cloudflare API not configured" : "Local prototype");
+        setRuntimeLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deployedMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,9 +187,9 @@ function App() {
   }, [activeComparisonId, firstUnanswered]);
 
   useEffect(() => {
-    if (route === ROUTES.stats && apiEnabled()) void refreshRemoteStats();
+    if (runtimeLoaded && route === ROUTES.stats && apiEnabled()) void refreshRemoteStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route]);
+  }, [runtimeLoaded, route]);
 
   async function refreshRemoteStats() {
     if (!apiEnabled()) return;
@@ -315,20 +335,20 @@ function App() {
     );
   }
 
-  if (!study) {
+  if (!study || !runtimeLoaded) {
     return (
       <main className="centerShell">
         <section className="accessPanel">
           <div className="eyebrow">Loading</div>
           <h1>Sakina SOAP Review</h1>
-          <p>Preparing the anonymized comparison set.</p>
+          <p>Preparing the comparison set and Cloudflare connection.</p>
         </section>
       </main>
     );
   }
 
   if (!profile || route === ROUTES.access) {
-    return <AccessPage cloudMode={apiEnabled()} onAccess={handleAccessSubmit} onSubmit={handleProfileSubmit} />;
+    return <AccessPage cloudMode={apiEnabled()} deployedMode={deployedMode} onAccess={handleAccessSubmit} onSubmit={handleProfileSubmit} />;
   }
 
   return (
@@ -424,7 +444,7 @@ function AppShell({ profile, route, answeredCount, totalCount, remoteStatus, onL
   );
 }
 
-function AccessPage({ cloudMode, onAccess, onSubmit }) {
+function AccessPage({ cloudMode, deployedMode, onAccess, onSubmit }) {
   const [step, setStep] = useState("gate");
   const [gate, setGate] = useState({
     email: "",
@@ -548,7 +568,11 @@ function AccessPage({ cloudMode, onAccess, onSubmit }) {
 
         <div className="accessMode">
           <Cloud size={16} />
-          {cloudMode ? "Responses will sync to the configured Cloudflare Worker." : "Local mode: responses stay in this browser until Cloudflare is configured."}
+          {cloudMode
+            ? "Responses will sync to the configured Cloudflare Worker."
+            : deployedMode
+              ? "Cloudflare API is not configured for this deployment."
+              : "Local mode: responses stay in this browser until Cloudflare is configured."}
         </div>
         {status && <div className="statusBanner">{status}</div>}
       </section>
