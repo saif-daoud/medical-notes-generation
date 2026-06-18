@@ -255,9 +255,9 @@ button {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: grid;
-  grid-template-columns: minmax(230px, 330px) minmax(180px, 0.62fr) auto;
-  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: center;
   min-height: 78px;
   padding: 12px 20px;
@@ -270,6 +270,7 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 clamp(230px, 18vw, 330px);
   min-width: 0;
 }
 
@@ -296,8 +297,9 @@ button {
 }
 
 .topbarCenter {
+  flex: 0 1 clamp(260px, 30vw, 560px);
   min-width: 0;
-  max-width: 760px;
+  max-width: 560px;
 }
 
 .progressMeta {
@@ -323,11 +325,18 @@ button {
 
 .topbarActions {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex: 0 0 auto;
   min-width: 0;
   flex-wrap: wrap;
+}
+
+.navButton {
+  min-height: 38px;
+  padding-inline: 10px;
+  white-space: nowrap;
 }
 
 .navButton.active {
@@ -885,7 +894,17 @@ button {
 
 @media (max-width: 1120px) {
   .topbar {
-    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .brand {
+    flex-basis: min(330px, 100%);
+  }
+
+  .topbarCenter {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: 100%;
   }
 
   .topbarActions,
