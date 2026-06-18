@@ -100,6 +100,19 @@ jobs:
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" || true)"
+          DEPLOYMENTS_JSON="$(cd worker && npx wrangler deployments list --json --name sakina-expert-feedback-api 2>/dev/null || true)"
+          DEPLOYMENT_URL="$(DEPLOYMENTS_JSON="$DEPLOYMENTS_JSON" node - <<'NODE'
+          const payload = JSON.parse(process.env.DEPLOYMENTS_JSON || "[]");
+          const found = [];
+          const visit = (value) => {
+            if (typeof value === "string" && /^https:\/\/[^\s"]+\.workers\.dev/.test(value)) found.push(value);
+            else if (Array.isArray(value)) value.forEach(visit);
+            else if (value && typeof value === "object") Object.values(value).forEach(visit);
+          };
+          visit(payload);
+          process.stdout.write((found[0] || "").replace(/[),.]+$/, ""));
+          NODE
+          )"
           WORKERS_SUBDOMAIN="$(SUBDOMAIN_JSON="$SUBDOMAIN_JSON" node - <<'NODE'
           const payload = JSON.parse(process.env.SUBDOMAIN_JSON || "{}");
           const result = payload?.result;
@@ -116,7 +129,9 @@ jobs:
 
           WORKERS_SUBDOMAIN="${WORKERS_SUBDOMAIN:-saif-sedaoud}"
 
-          if [ -n "$WORKERS_SUBDOMAIN" ]; then
+          if [ -n "$DEPLOYMENT_URL" ]; then
+            WORKER_URL="$DEPLOYMENT_URL"
+          elif [ -n "$WORKERS_SUBDOMAIN" ]; then
             WORKER_URL="https://sakina-expert-feedback-api.${WORKERS_SUBDOMAIN}.workers.dev"
           else
             WORKER_URL="$(node - <<'NODE'
@@ -152,7 +167,7 @@ jobs:
           const fs = require("fs");
           fs.writeFileSync(
             "public/data/runtime-config.json",
-            `${JSON.stringify({ apiBase: process.env.API_BASE || "", generatedAt: new Date().toISOString() }, null, 2)}\n`,
+            `${JSON.stringify({ apiBase: process.env.API_BASE || "", generatedAt: new Date().toISOString(), cloudflareRequired: true }, null, 2)}\n`,
           );
           NODE
 
