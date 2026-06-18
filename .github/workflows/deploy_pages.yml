@@ -115,11 +115,23 @@ jobs:
 
           echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve API base
+        id: api
+        env:
+          VITE_API_BASE_SECRET: ${{ secrets.VITE_API_BASE }}
+          DETECTED_WORKER_URL: ${{ steps.worker.outputs.worker_url }}
+        run: |
+          if [ -n "${VITE_API_BASE_SECRET:-}" ]; then
+            echo "url=${VITE_API_BASE_SECRET}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${DETECTED_WORKER_URL:-}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         env:
           VITE_BASE_PATH: /medical-notes-generation/
           VITE_ACCESS_CODE_HASH: ${{ secrets.ACCESS_CODE_HASH }}
-          VITE_API_BASE: ${{ steps.worker.outputs.worker_url }}
+          VITE_API_BASE: ${{ steps.api.outputs.url }}
         run: npm run build
 
       - name: Upload artifact
