@@ -90,14 +90,29 @@ jobs:
           npx wrangler deploy 2>&1 | tee ../worker-deploy.log
           cd ..
 
-          WORKER_URL="$(node - <<'NODE'
+          SUBDOMAIN_JSON="$(curl -fsS \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" || true)"
+          WORKERS_SUBDOMAIN="$(SUBDOMAIN_JSON="$SUBDOMAIN_JSON" node - <<'NODE'
+          const payload = JSON.parse(process.env.SUBDOMAIN_JSON || "{}");
+          process.stdout.write(payload?.result?.subdomain || "");
+          NODE
+          )"
+
+          if [ -n "$WORKERS_SUBDOMAIN" ]; then
+            WORKER_URL="https://sakina-expert-feedback-api.${WORKERS_SUBDOMAIN}.workers.dev"
+          else
+            WORKER_URL="$(node - <<'NODE'
           const fs = require("fs");
           const log = fs.readFileSync("worker-deploy.log", "utf8");
           const match = log.match(/https:\/\/[^\s]+\.workers\.dev/);
           if (!match) process.exit(1);
           process.stdout.write(match[0].replace(/[),.]+$/, ""));
           NODE
-          )"
+            )"
+          fi
+
           echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
 
       - name: Build
